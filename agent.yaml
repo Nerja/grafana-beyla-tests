@@ -1,0 +1,39 @@
+apiVersion: v1
+data:
+  config.river: |
+    otelcol.receiver.otlp "default" {
+      grpc {}
+      http {}
+
+      output {
+        metrics = [otelcol.processor.batch.default.input]
+        logs    = [otelcol.processor.batch.default.input]
+        traces  = [otelcol.processor.batch.default.input]
+      }
+    }
+    otelcol.processor.batch "default" {
+          output {
+            traces  = [otelcol.exporter.otlp.tempo.input]
+          }
+        }
+
+    otelcol.exporter.otlp "tempo" {
+      client {
+        endpoint = "<redacted>:443"
+        auth = otelcol.auth.basic.tempo.handler
+      }
+    }
+
+    otelcol.auth.basic "tempo" {
+      username = "<redacted>"
+      password = "<redacted>"
+    }
+
+    logging {
+      level  = "debug"
+      format = "logfmt"
+    }
+kind: ConfigMap
+metadata:
+  name: ga-grafana-agent
+  namespace: grafana

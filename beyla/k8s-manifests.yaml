@@ -1,0 +1,94 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: beyla-config
+  namespace: beyla
+data:
+  beyla-config.yml: |
+    routes:
+      unmatched: heuristic
+--- 
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: beyla
+  namespace: beyla
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: beyla
+rules:
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: beyla
+subjects:
+  - kind: ServiceAccount
+    name: beyla
+    namespace: beyla
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: beyla
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: beyla
+  labels:
+    app: beyla
+  namespace: beyla
+spec:
+  selector:
+    matchLabels:
+      app: beyla
+  template:
+    metadata:
+      labels:
+        app: beyla
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8999"
+    spec:
+      hostPID: true # Required to access the processes on the host
+      serviceAccountName: beyla # required if you want kubernetes metadata decoration
+      containers:
+        - name: autoinstrument
+          image: grafana/beyla:latest
+          securityContext:
+            privileged: true
+          ports:
+            - containerPort: 8999
+              name: metrics
+          env:
+            # Select the executable by its name instead of BEYLA_OPEN_PORT
+            - name: BEYLA_EXECUTABLE_NAME
+              value: ".*"
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+              value: "http://$(HOST_IP):4317"
+              # required if you want kubernetes metadata decoration
+            - name: BEYLA_KUBE_METADATA_ENABLE
+              value: "true"
+            - name: BEYLA_PROMETHEUS_PORT
+              value: "8999"
+            - name: BEYLA_CONFIG_PATH
+              value: "/config/beyla-config.yml"
+          volumeMounts:
+            - mountPath: /config
+              name: beyla-config
+      volumes:
+        - name: beyla-config
+          configMap:
+            name: beyla-config
